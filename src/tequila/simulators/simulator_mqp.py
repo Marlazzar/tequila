@@ -21,8 +21,6 @@ class BackendCircuitMQP(BackendCircuitQiskit):
             provider = MQPProvider(self.token)
             [backend] = provider.backends('AQT20')
             self.device = backend
-            print(dir(backend))
-            print(backend.operation_names)
         except Exception as e:
             raise TequilaMQPException(f"Invalid Token for MQP backend")
         return backend
@@ -53,10 +51,15 @@ class BackendCircuitMQP(BackendCircuitQiskit):
         qiskit_backend = self.get_backend()
         circuit = circuit.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
         circuit = self.add_state_init(circuit, initial_state)
-        circuit = qiskit.transpile(circuit, backend=qiskit_backend,
+        basis = qiskit_backend.operation_names
+        # coupling_map?
+        circuit = qiskit.transpile(circuit, backend=qiskit_backend, basis_gates=basis, coupling_map=coupling_map,
                                            optimization_level=optimization_level
                                            )
         job = qiskit_backend.run(circuit, shots=samples, queued=True)
+        # TODO: the program will get stuck forever in the convert_measurements method, because the mqp qpu doesn't execute it 
+        # immediately. We should probably print out the job uuid, print some instructions for how to get the result and then 
+        # just exit
         return self.convert_measurements(job, target_qubits=read_out_qubits)
  
     def do_simulate(self, variables, initial_state=0, *args, **kwargs):

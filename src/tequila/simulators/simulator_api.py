@@ -49,6 +49,7 @@ except ImportError:
 HAS_MQP = True
 try:
     from tequila.simulators.simulator_mqp import BackendCircuitMQP, BackendExpectationValueMQP
+    # TODO: this should actually not be a simulator, but not adding it leads to a 'backend not installed' exception
     INSTALLED_SIMULATORS["mqp"] = BackendTypes(BackendCircuitMQP, BackendExpectationValueMQP)
     INSTALLED_SAMPLERS["mqp"] = BackendTypes(BackendCircuitMQP, BackendExpectationValueMQP)
 except ImportError:
