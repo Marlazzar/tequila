@@ -104,8 +104,10 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         qiskit_backend = self.retrieve_device(self.device)
         sampling_circuits = []
         k = 1
+        shots = samples
         if samples > 200:
             k = int(samples / 200)
+            shots = 200
         w = QubitWaveFunction(self.n_qubits, self.numbering)
         if isinstance(circuit, list):
             for i, c in enumerate(circuit):
@@ -113,9 +115,9 @@ class BackendCircuitAQT(BackendCircuitQiskit):
                 circ = self.add_state_init(circ, initial_state)
                 basis = qiskit_backend.operation_names
                 circ = qiskit.transpile(circ, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
-                sampling_circuits.append(*[circ] * k)
+                sampling_circuits.extend([circ] * k)
             # batch jobs
-            job = qiskit_backend.run(sampling_circuits, shots=samples)
+            job = qiskit_backend.run(sampling_circuits, shots=shots)
             counts = job.result().get_counts()
             wfns = []
             for i, count in enumerate(counts):
@@ -129,7 +131,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         circuit = self.add_state_init(circuit, initial_state)   
         circuit = qiskit.transpile(circuit, backend=qiskit_backend, optimization_level=optimization_level)
         sampling_circuits = [circuit] * k
-        job = qiskit_backend.run(sampling_circuits, shots=samples)
+        job = qiskit_backend.run(sampling_circuits, shots=shots)
         counts = job.result().get_counts()
         if isinstance(counts, list):
             wfns = []
