@@ -37,7 +37,6 @@ def make_hcb_grouping(H):
       if p.is_all_z():
           H1 += QubitHamiltonian().from_paulistrings(p)
       else:
-          print(p.naked())
           if (p.naked()[q[0]] == "X"):
               for k, v in p.items():
                   p._data[k] = "Z"
@@ -103,26 +102,41 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         if 'optimization_level' in kwargs:
             optimization_level = kwargs['optimization_level']
         qiskit_backend = self.retrieve_device(self.device)
+        sampling_circuits = []
+        k = int(samples / 200) + 1
+        w = QubitWaveFunction(self.n_qubits, self.numbering)
         if isinstance(circuit, list):
             for i, c in enumerate(circuit):
-                circuit[i] = c.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
-                circuit[i] = self.add_state_init(c, initial_state)
+                circ = c.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
+                circ = self.add_state_init(circ, initial_state)
                 basis = qiskit_backend.operation_names
-                circuit[i] = qiskit.transpile(c, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
+                circ = qiskit.transpile(circ, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
+                sampling_circuits.append(*[circ] * k)
             # batch jobs
-            job = qiskit_backend.run(circuit, shots=samples)
+            job = qiskit_backend.run(sampling_circuits, shots=samples)
             counts = job.result().get_counts()
             wfns = []
             for i, count in enumerate(counts):
-                wfn = self.convert_measurements(count, target_qubits=read_out_qubits[i])
+                wfn = self.convert_measurements(count, target_qubits=read_out_qubits[i // k])
                 wfns.append(wfn)
+            wfns = [sum(wfns[i:i+k], w) for i in range(0, len(wfns), k)]   
+
             return wfns
         
         circuit = circuit.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
         circuit = self.add_state_init(circuit, initial_state)   
         circuit = qiskit.transpile(circuit, backend=qiskit_backend, optimization_level=optimization_level)
-        job = qiskit_backend.run(circuit, shots=samples)
-        return self.convert_measurements(job.result().get_counts(), target_qubits=read_out_qubits)
+        sampling_circuits = [circuit] * k
+        job = qiskit_backend.run(sampling_circuits, shots=samples)
+        counts = job.result().get_counts()
+        if isinstance(counts, list):
+            for i, count in enumerate(counts):
+                wfn = self.convert_measurements(count, target_qubits=read_out_qubits)
+                wfns.append(wfn)
+            wfn = sum(wfns, w)
+        else:
+            wfn = self.convert_measurements(counts, target_qubits=read_out_qubits)
+        return wfn
 
     def convert_measurements(self, qiskit_counts, target_qubits=None) -> list[QubitWaveFunction]:
         result = QubitWaveFunction(self.n_qubits, self.numbering)
@@ -195,7 +209,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
                 sign = (-1) ** parity
                 E_tmp += sign * count
                 n_samples += count
-                E_tmp = E_tmp / samples * groups[i].coeff
+            E_tmp = E_tmp / samples * groups[i].coeff
                  
             E += E_tmp
         assert n_samples == samples * len(wfns)
