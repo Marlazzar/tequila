@@ -103,7 +103,9 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             optimization_level = kwargs['optimization_level']
         qiskit_backend = self.retrieve_device(self.device)
         sampling_circuits = []
-        k = int(samples / 200) + 1
+        k = 1
+        if samples > 200:
+            k = int(samples / 200)
         w = QubitWaveFunction(self.n_qubits, self.numbering)
         if isinstance(circuit, list):
             for i, c in enumerate(circuit):
@@ -130,6 +132,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         job = qiskit_backend.run(sampling_circuits, shots=samples)
         counts = job.result().get_counts()
         if isinstance(counts, list):
+            wfns = []
             for i, count in enumerate(counts):
                 wfn = self.convert_measurements(count, target_qubits=read_out_qubits)
                 wfns.append(wfn)
@@ -153,8 +156,6 @@ class BackendCircuitAQT(BackendCircuitQiskit):
    
         return result
 
-    # TODO: do i need multiple variables here?
-    # expects a list of paulistrings
     # TODO: maybe check if a pauli string is all z and skip the basis change if so
     def sample_batches(self, samples: int, groups, variables, initial_state: Union[int, QubitWaveFunction] = 0, circuits: list[QuantumCircuit] = None,
                            *args, **kwargs) -> numbers.Real:
@@ -167,14 +168,18 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             assert len(circuits) == len(groups), "circuits and groups have to be of the same length"
         # readout qubits for the batch
         read_out_qubits_list = []
+        E = 0.0
+        sampling_groups = []
         for group in groups:
             # TODO: self.abstract_qubits for every group the same? yes if theyre all from the same hamiltonian 
             not_in_u = [q for q in group.qubits if q not in self.abstract_qubits]
             reduced_ps = group.trace_out_qubits(qubits=not_in_u)
             if reduced_ps.coeff == 0.0:
-                return 0.0
+                continue
+
             if len(reduced_ps._data.keys()) == 0:
-                return reduced_ps.coeff
+                E += reduced_ps.coeff
+                continue
     
             # make basis change and translate to backend
             basis_change = QCircuit()
@@ -190,17 +195,15 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             circuit = self.create_circuit(circuit=copy.deepcopy(self.circuit), abstract_circuit=basis_change)
             circuits.append(circuit)
             read_out_qubits_list.append(qubits)
+            sampling_groups.append(group)
             # run simulators
         # somehow call the sample method for batches
         wfns = self.sample(samples=samples, circuit=circuits, read_out_qubits=read_out_qubits_list, variables=variables,
                              initial_state=initial_state, *args, **kwargs)
         
-        # TODO: count is now a list of dictionaries for every ps/group
-        # compute energy
 
         # TODO: this is creating a single result, so it will only work for batching the paulistrings of 
         # a single hamiltonian
-        E = 0.0
         n_samples = 0
         for i, wfn in enumerate(wfns): 
             E_tmp = 0.0
@@ -209,8 +212,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
                 sign = (-1) ** parity
                 E_tmp += sign * count
                 n_samples += count
-            E_tmp = E_tmp / samples * groups[i].coeff
-                 
+            E_tmp = E_tmp / samples * sampling_groups[i].coeff
             E += E_tmp
         assert n_samples == samples * len(wfns)
         return E
