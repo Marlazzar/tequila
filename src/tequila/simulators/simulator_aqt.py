@@ -1,4 +1,5 @@
 from calendar import c
+from tequila.circuit.circuit import QCircuit
 from tequila.utils.keymap import KeyMapRegisterToSubregister
 from tequila import BitString, BitNumbering, BitStringLSB
 from tequila.circuit.compiler import change_basis
@@ -70,22 +71,22 @@ class BackendCircuitAQT(BackendCircuitQiskit):
     
     def do_sample(self, circuit: Union[QuantumCircuit, list[QuantumCircuit]], samples: int, read_out_qubits, initial_state=0, *args,
                   **kwargs) -> Union[QubitWaveFunction, list[QubitWaveFunction]]:
-       
         optimization_level = 1
         if 'optimization_level' in kwargs:
             optimization_level = kwargs['optimization_level']
         qiskit_backend = self.retrieve_device(self.device)
         if isinstance(circuit, list):
-            for c in circuit:
-                c = c.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
-                c = self.add_state_init(c, initial_state)
-                c = qiskit.transpile(c, backend=qiskit_backend, optimization_level=optimization_level)
+            for i, c in enumerate(circuit):
+                circuit[i] = c.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
+                circuit[i] = self.add_state_init(c, initial_state)
+                basis = qiskit_backend.operation_names
+                circuit[i] = qiskit.transpile(c, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
             # batch jobs
             job = qiskit_backend.run(circuit, shots=samples)
             counts = job.result().get_counts()
             wfns = []
-            for count in counts:
-                wfn = self.convert_measurements(count, target_qubits=read_out_qubits)
+            for i, count in enumerate(counts):
+                wfn = self.convert_measurements(count, target_qubits=read_out_qubits[i])
                 wfns.append(wfn)
             return wfns
         
@@ -93,8 +94,6 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         circuit = self.add_state_init(circuit, initial_state)   
         circuit = qiskit.transpile(circuit, backend=qiskit_backend, optimization_level=optimization_level)
         job = qiskit_backend.run(circuit, shots=samples)
-        print("readout qubits", read_out_qubits)
-        print(type(read_out_qubits))
         return self.convert_measurements(job.result().get_counts(), target_qubits=read_out_qubits)
 
     def convert_measurements(self, qiskit_counts, target_qubits=None) -> list[QubitWaveFunction]:
@@ -131,7 +130,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
                 return reduced_ps.coeff
     
             # make basis change and translate to backend
-            basis_change = qiskit.QCircuit()
+            basis_change = QCircuit()
             qubits = []
             for idx, p in reduced_ps.items():
                 qubits.append(idx)
@@ -146,20 +145,27 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             read_out_qubits_list.append(qubits)
             # run simulators
         # somehow call the sample method for batches
-        counts = self.sample(samples=samples, circuit=circuits, read_out_qubits=read_out_qubits_list, variables=variables,
+        wfns = self.sample(samples=samples, circuit=circuits, read_out_qubits=read_out_qubits_list, variables=variables,
                              initial_state=initial_state, *args, **kwargs)
         
-        # TODO: count is no a list of dictionaries for every ps/group
+        # TODO: count is now a list of dictionaries for every ps/group
         # compute energy
+
+        # TODO: this is creating a single result, so it will only work for batching the paulistrings of 
+        # a single hamiltonian
         E = 0.0
         n_samples = 0
-        for key, count in counts.items():
-            parity = key.array.count(1)
-            sign = (-1) ** parity
-            E += sign * count
-            n_samples += count
-        assert n_samples == samples
-        E = E / samples * paulistring.coeff
+        for i, wfn in enumerate(wfns): 
+            E_tmp = 0.0
+            for key, count in wfn.items():
+                parity = key.array.count(1)
+                sign = (-1) ** parity
+                E_tmp += sign * count
+                n_samples += count
+                E_tmp = E_tmp / samples * groups[i].coeff
+                 
+            E += E_tmp
+        assert n_samples == samples * len(wfns)
         return E
 
 
@@ -201,7 +207,6 @@ class BackendExpectationValueAQT(BackendExpectationValueQiskit):
         self._U = self.initialize_unitary(E.U, variables=variables, noise=noise, device=device, **kwargs)
         self._reduced_hamiltonians = self.reduce_hamiltonians(self.abstract_expectationvalue.H)
         self._H = self.initialize_hamiltonian(self._reduced_hamiltonians)
-        print("init exp value")
         self._variables = E.extract_variables()
         self._contraction = E._contraction
         self._shape = E._shape
@@ -281,7 +286,7 @@ class BackendExpectationValueAQT(BackendExpectationValueQiskit):
             else:
                 groups = []
                 for ps in H.paulistrings:
-                    groups.append([ps])
+                    groups.append(ps)
                 if batching:
                     E = self.U.sample_batches(samples=samples, groups=groups, variables=variables, initial_state=initial_state)
                 else: 
