@@ -19,9 +19,37 @@ from qiskit.circuit import QuantumCircuit
 import qiskit_aqt_provider
 from tequila.wavefunction.qubit_wavefunction import QubitWaveFunction
 from tequila import TequilaException, TequilaWarning, circuit
+from tequila.hamiltonian.qubit_hamiltonian import QubitHamiltonian
+from tequila.circuit import gates 
+import numpy as np
+from tequila.objective import ExpectationValue
 
-
-
+def make_hcb_grouping(H):
+    H1 = QubitHamiltonian()
+    H2 = QubitHamiltonian()
+    H3 = QubitHamiltonian()
+    
+    U1 = QCircuit()
+    U2 = gates.H([i for i in H.qubits])
+    U3 = gates.Rx(angle=-np.pi/2, target=[i for i in H.qubits])
+    for p in H.paulistrings:
+      q = p.naked().qubits
+      if p.is_all_z():
+          H1 += QubitHamiltonian().from_paulistrings(p)
+      else:
+          print(p.naked())
+          if (p.naked()[q[0]] == "X"):
+              for k, v in p.items():
+                  p._data[k] = "Z"
+              H2 += QubitHamiltonian().from_paulistrings(p)
+          else:
+              for k, v in p.items():
+                  p._data[k] = "Z"
+              H3 += QubitHamiltonian().from_paulistrings(p)
+    
+    hamiltonians = [H1, H2, H3]
+    circuits = [U1, U2, U3]
+    return hamiltonians, circuits
 
 
 class TequilaAQTException(TequilaQiskitException):
@@ -113,11 +141,16 @@ class BackendCircuitAQT(BackendCircuitQiskit):
 
     # TODO: do i need multiple variables here?
     # expects a list of paulistrings
-    def sample_batches(self, samples: int, groups, variables, initial_state: Union[int, QubitWaveFunction] = 0,
-                    
+    # TODO: maybe check if a pauli string is all z and skip the basis change if so
+    def sample_batches(self, samples: int, groups, variables, initial_state: Union[int, QubitWaveFunction] = 0, circuits: list[QuantumCircuit] = None,
                            *args, **kwargs) -> numbers.Real:
+        # either dont pass circuits to just create some for the basis change of paulistrings
+        # or pass an entire circuit for each group
        # the circuits for the batch
-        circuits = []
+        if circuits is None:
+            circuits = []
+        else:
+            assert len(circuits) == len(groups), "circuits and groups have to be of the same length"
         # readout qubits for the batch
         read_out_qubits_list = []
         for group in groups:
@@ -167,10 +200,58 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             E += E_tmp
         assert n_samples == samples * len(wfns)
         return E
-
-
-
     
+    # TODO: hcb will always be batched right now
+    def sample_hcb_batch(self, samples: int, hamiltonians, basis_changes, variables, initial_state: Union[int, QubitWaveFunction] = 0, *args, **kwargs) -> numbers.Real:
+        assert len(basis_changes) == len(hamiltonians) , "circuits and hamiltonians both need to have length 3"
+        # readout qubits for the batch
+        read_out_qubits_list = []
+        circuits = []
+        hamiltonians_tmp = []
+        E = 0.0
+        for i, hamiltonian in enumerate(hamiltonians):
+            abstract_qubits_H = hamiltonian.qubits
+            if len(abstract_qubits_H) == 0:
+                E += sum([ps.coeff for ps in hamiltonian.paulistrings])
+                continue
+            hamiltonians_tmp.append(hamiltonian)
+            # assert that the Hamiltonian was mapped before
+            if not all(q in self.qubit_map.keys() for q in abstract_qubits_H):
+                raise TequilaException(
+                "Qubits in {}-qubit Hamiltonian were not traced out for {}-qubit circuit".format(hamiltonian.n_qubits,
+                                                                                                 self.n_qubits))
+
+            circuit = self.create_circuit(circuit=copy.deepcopy(self.circuit), abstract_circuit=basis_changes[i])
+            circuits.append(circuit)
+            read_out_qubits_list.append(abstract_qubits_H)
+            # run simulators
+        # somehow call the sample method for batches
+        wfns = self.sample(samples=samples,circuit=circuits, read_out_qubits=read_out_qubits_list, variables=variables,
+                             initial_state=initial_state, *args, **kwargs)
+        
+        for i, hamiltonian in enumerate(hamiltonians_tmp):  
+            abstract_qubits_H = hamiltonian.qubits        
+            read_out_map = {q: i for i, q in enumerate(abstract_qubits_H)}
+
+            for paulistring in hamiltonian.paulistrings:
+                Etmp = 0.0
+                n_samples = 0
+                for key, count in wfns[i].items():
+                    # get all the non-trivial qubits of the current PauliString (meaning all Z operators)
+                    # and mapp them to the backend qubits
+                    mapped_ps_support = [read_out_map[i] for i in paulistring._data.keys()]
+                    # count all measurements that resulted in |1> for those qubits
+                    parity = [k for i, k in enumerate(key.array) if i in mapped_ps_support].count(1)
+                    # evaluate the PauliString
+                    sign = (-1) ** parity
+                    Etmp += sign * count
+                    n_samples += count
+                E += (Etmp / samples) * paulistring.coeff
+                # small failsafe
+                assert n_samples == samples 
+        return E
+
+
 class BackendExpectationValueAQT(BackendExpectationValueQiskit):
     BackendCircuitType = BackendCircuitAQT
 
@@ -240,7 +321,7 @@ class BackendExpectationValueAQT(BackendExpectationValueQiskit):
         else:
             return self._contraction(data)
 
-    def sample(self, variables, samples, initial_state: Union[int, QubitWaveFunction] = 0, batching: bool = False, *args, **kwargs) -> numpy.array:
+    def sample(self, variables, samples, initial_state: Union[int, QubitWaveFunction] = 0, hcb: bool = False, batching: bool = False, *args, **kwargs) -> numpy.array:
         """
         sample the expectationvalue.
 
@@ -284,14 +365,18 @@ class BackendExpectationValueAQT(BackendExpectationValueQiskit):
                 E = self.U.sample_all_z_hamiltonian(samples=samples, hamiltonian=H, variables=variables, initial_state=initial_state,
                                                 *args, **kwargs)
             else:
-                groups = []
-                for ps in H.paulistrings:
-                    groups.append(ps)
-                if batching:
-                    E = self.U.sample_batches(samples=samples, groups=groups, variables=variables, initial_state=initial_state)
-                else: 
-                    for g in groups:
-                        E += self.U.sample_paulistring(samples=samples, paulistring=g, variables=variables, initial_state=initial_state,
+                if hcb:
+                    hamiltonians, basis_changes = make_hcb_grouping(H)
+                    E = self.U.sample_hcb_batch(samples=samples, hamiltonians=hamiltonians, basis_changes=basis_changes, variables=variables, initial_state=initial_state)
+                else:
+                    groups = []
+                    for ps in H.paulistrings:
+                        groups.append(ps)
+                    if batching:
+                        E = self.U.sample_batches(samples=samples, groups=groups, variables=variables, initial_state=initial_state)
+                    else: 
+                        for g in groups:
+                            E += self.U.sample_paulistring(samples=samples, paulistring=g, variables=variables, initial_state=initial_state,
                                                    *args, **kwargs)
             result.append(to_float(E))
         return numpy.asarray(result)
