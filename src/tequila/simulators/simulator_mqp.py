@@ -21,6 +21,8 @@ from tequila.circuit import gates
 from tequila.circuit import QCircuit
 import numpy as np
 
+# TODO: mit aqt mergen
+
 def make_hcb_grouping(H):
     H1 = QubitHamiltonian()
     H2 = QubitHamiltonian()
@@ -116,6 +118,8 @@ class BackendCircuitMQP(BackendCircuitQiskit):
                 circ = self.add_state_init(circ, initial_state)
                 #circ = qiskit.transpile(circ, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
                 sampling_circuits.extend([circ] * k)
+            if len(sampling_circuits) > 100:
+                raise TequilaMQPException("Too many circuits to sample. Please reduce the number of circuits or increase the number of shots.")
             # batch jobs
             job = qiskit_backend.run(sampling_circuits, shots=shots, queued=True)
             counts = job.result().get_counts()

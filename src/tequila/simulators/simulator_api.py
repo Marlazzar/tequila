@@ -38,6 +38,7 @@ try:
 except ImportError:
     HAS_SPEX = False
 
+# TODO: dummy mqp 
 HAS_AQT = True
 try:
     from tequila.simulators.simulator_aqt import BackendCircuitAQT, BackendExpectationValueAQT
