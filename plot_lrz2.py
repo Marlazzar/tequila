@@ -18,10 +18,10 @@ cs = 12
 energy_diff_results = []
 x = []
 sample_list = [200, 400, 800]
-for samples in sample_list:
+fig, ax = plt.subplots(len(sample_list) + 1, sharex=True, sharey=True)
+for s, samples in enumerate(sample_list):
     with open("data/gdata2_{}.dat".format(samples), "rb") as file:
         data = pickle.load(file)
-    
     
     # number of hydrogens
     x = [a[0] for a in data]
@@ -48,9 +48,12 @@ for samples in sample_list:
     
     #fig, ax = plt.subplots()
 
-    #plt.set_title("error bar")
-    plt.errorbar(x, av, yerr=err, fmt='o', capsize=5, markersize=cs, color=color(samples), label='{} shots'.format(samples))
+    ax[0].set_title("error bar")
+    ax[0].errorbar(x, av, yerr=err, fmt='o', capsize=5, markersize=cs, color=color(samples), label='{} shots'.format(samples))
     
+    ax[s+1].set_title("box plot for {} shots".format(samples))
+    ax[s+1].boxplot(energy_diffs, patch_artist=True,  # fill with color
+                   tick_labels=x)  # will be used to label x-ticks
     #plt[1].set_title("box plot")
     #plt[1].boxplot(energy_diffs, patch_artist=True,  # fill with color
     #               tick_labels=x)  # will be used to label x-ticks
@@ -62,13 +65,19 @@ plt.ylabel("finite sample energy")
 plt.savefig("av_and_range_n.png")
 plt.show()
 
-fig, ax = plt.subplots(len(energy_diff_results), sharex=True, sharey=True)
+exit(0)
+
+#fig, ax = plt.subplots(len(energy_diff_results), sharex=True, sharey=True)
+fig, ax = plt.subplots(2, sharex=True, sharey=True)
+ax[0].set_title("error bar")
+ax[0].boxplot(x, y, yerr=err, fmt='o', capsize=5, markersize=cs, color=color(samples), label='{} shots'.format(samples))
+
 for i in range(len(energy_diff_results)):
-    ax[i].boxplot(energy_diff_results[i], patch_artist=True,  # fill with color
+    ax[i].boxplot(y, patch_artist=True,  # fill with color
                    tick_labels=x)  # will be used to label x-ticks
     ax[i].set_title("box plot for {} shots".format(sample_list[i]))
     ax[i].set_ylabel("energy diff")
-plt.savefig("box_plot.png")
+plt.saveax("box_plot.png")
 plt.show()
 
 
