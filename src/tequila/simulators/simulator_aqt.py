@@ -23,6 +23,7 @@ from tequila.hamiltonian.qubit_hamiltonian import QubitHamiltonian
 from tequila.circuit import gates 
 import numpy as np
 from tequila.objective import ExpectationValue
+import globals 
 
 def make_hcb_grouping(H):
     H1 = QubitHamiltonian()
@@ -60,14 +61,23 @@ class BackendCircuitAQT(BackendCircuitQiskit):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.device = self.get_backend()
-    
+   
         
     def get_backend(token: str = "") -> AQTResource:
         provider = AQTProvider(token)
         # TODO: what if somebody actually passes a valid aqt cloud token?
         backend = provider.get_backend('offline_simulator_no_noise')
         return backend
-    
+   
+   
+    def get_circuit(self, circuit: Union[QuantumCircuit, list[QuantumCircuit]], qiskit_backend, initial_state=0, optimization_level=1,  *args, **kwargs) -> QuantumCircuit:
+        circ = circuit.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
+        circ = self.add_state_init(circ, initial_state)
+        basis = qiskit_backend.operation_names
+        circ = qiskit.transpile(circ, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level) 
+        return circ
+                
+                
     def sample(self, variables, samples, read_out_qubits=None, circuit=None, initial_state=0, *args, **kwargs):
         if initial_state != 0 and not self.supports_sampling_initialization:
             raise TequilaException("Backend does not support initial states for sampling")
@@ -98,6 +108,8 @@ class BackendCircuitAQT(BackendCircuitQiskit):
     
     def do_sample(self, circuit: Union[QuantumCircuit, list[QuantumCircuit]], samples: int, read_out_qubits, initial_state=0, *args,
                   **kwargs) -> Union[QubitWaveFunction, list[QubitWaveFunction]]:
+        globals.calls += 1
+        
         optimization_level = 1
         if 'optimization_level' in kwargs:
             optimization_level = kwargs['optimization_level']
@@ -111,11 +123,11 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         w = QubitWaveFunction(self.n_qubits, self.numbering)
         if isinstance(circuit, list):
             for i, c in enumerate(circuit):
-                circ = c.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
-                circ = self.add_state_init(circ, initial_state)
-                basis = qiskit_backend.operation_names
-                circ = qiskit.transpile(circ, backend=qiskit_backend, basis_gates=basis, optimization_level=optimization_level)
+                circ = self.get_circuit(circuit=c, qiskit_backend=qiskit_backend, initial_state=initial_state, optimization_level=optimization_level, *args, **kwargs)
                 sampling_circuits.extend([circ] * k)
+            if len(sampling_circuits) > 100:
+                raise TequilaAQTException("Too many circuits to sample. Please reduce the number of circuits or increase the number of shots.")
+            #
             # batch jobs
             job = qiskit_backend.run(sampling_circuits, shots=shots)
             counts = job.result().get_counts()
@@ -127,9 +139,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
 
             return wfns
         
-        circuit = circuit.assign_parameters(self.resolver)  # this is necessary -- see qiskit-aer issue 1346
-        circuit = self.add_state_init(circuit, initial_state)   
-        circuit = qiskit.transpile(circuit, backend=qiskit_backend, optimization_level=optimization_level)
+        circuit = self.get_circuit(circuit=circuit, qiskit_backend=qiskit_backend, initial_state=initial_state, optimization_level=optimization_level, *args, **kwargs)
         sampling_circuits = [circuit] * k
         job = qiskit_backend.run(sampling_circuits, shots=shots)
         counts = job.result().get_counts()
@@ -142,6 +152,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         else:
             wfn = self.convert_measurements(counts, target_qubits=read_out_qubits)
         return wfn
+    
 
     def convert_measurements(self, qiskit_counts, target_qubits=None) -> list[QubitWaveFunction]:
         result = QubitWaveFunction(self.n_qubits, self.numbering)
