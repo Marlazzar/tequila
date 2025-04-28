@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append("src")
 import src.tequila as tq
 import numpy as np
@@ -60,43 +61,59 @@ def linear_H(number_hs, dist_h=1.0, samples=200, iterations=1, static:bool = Fal
     return exact_energy, results, sample_calls
 
 def get_optimizer(method, maxiter):
+    # need gradients
     if method == "bfgs":
         return {
             "method": "bfgs",
-            "maxiter": 100,
-            #"gradient": "qng",
+            "maxiter": maxiter,
+            "gradient": "2-point",
             #"lr": 0.01
         }
     elif method == "adam":
         return {
             "method": "adam",
-            "maxiter": 100
+            "maxiter": maxiter,
+            "gradient": "2-point",
+
         }
+    # needs hessian and gradient - doesn't work with numerical 2-point, needs jacobian
+    elif method == "newton-cg":
+        return {
+            "method": "newton-cg",
+            "maxiter": maxiter,
+        }
+    # these all don't need gradients
     elif method == "cobyla":
         return {
             "method": "cobyla",
-            "maxiter": 100
+            "maxiter": maxiter
         }
+    elif method == "slsqp":
+        return {
+            "method": "slsqp",
+            "maxiter": maxiter
+        }
+    elif method == "nelder-mead":
+        return {
+            "method": "nelder-mead",
+            "maxiter": maxiter
+        }
+    
     else:
         raise ValueError("Unknown optimizer method")
-    return {
-        "method": method,
-        "maxiter": 100
-    }
-    
+
+
 if __name__ == "__main__":
-    tq.show_available_optimizers()
-    exit(0)
-    samples_list = [200, 400, 800]
+    samples_list = [200]
     data = []
-    maxiters = [10, 50, 100]
+    maxiters = [10]
        #for s in samples:
-    optimizers = [ "bfgs", "adam", "cobyla"]
+    optimizers = [ "newton-cg", "bfgs", "adam", "nelder-mead", "cobyla"]
     for samples in samples_list:
         for maxiter in maxiters:
             for o in optimizers:
                 optimizer = get_optimizer(o, maxiter=maxiter)
-                exact_energy, results, sample_calls = linear_H(number_hs=2, dist_h=1.0, samples=samples, iterations=10, static=True, optimizer=optimizer)
+                exact_energy, results, sample_calls = linear_H(number_hs=2, dist_h=1.0, samples=samples, iterations=3, static=True, optimizer=optimizer)
                 data.append((o, maxiter, sample_calls, exact_energy, results))
             with open("data/optim_data_{}.dat".format(samples), "wb") as file:
                 pickle.dump(data,file) 

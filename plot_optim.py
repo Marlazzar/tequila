@@ -27,7 +27,7 @@ for s, samples in enumerate(sample_list):
 
         data = [a for a in data if a[1] == maxiter]
         # optimizer method 
-        x = [a[0]["method"] for a in data]
+        x = [a[0] for a in data]
         # maxiter
         #m = [a[1] for a in data]
 
@@ -53,17 +53,18 @@ for s, samples in enumerate(sample_list):
         #plt.plot(x,hi,label="hi ({})".format(samples))
         cs = cs -2
 
-        ax[0].set_title("energy diffs")
+        ax[0].set_ylabel("energy diffs")
 
         #fig.set_title("error bar")
         ax[0].errorbar(x, av, yerr=err, fmt='o', capsize=5, markersize=cs, color=color(maxiter), label='{} maxiter'.format(maxiter))
-
+      
         ax[m+1].set_title("measurements")
+        ax[m+1].set_ylabel("sampling calls")
         sample_calls_avgs = [sum(a)/len(a) for a in sample_calls]
         ax[m+1].bar(x, sample_calls_avgs)  # will be used to label x-ticks
 
         #plt.plot(x,av,label="av ({})".format(samples))
-plt.legend()
+#plt.legend()
 plt.xlabel("optimizer method")
 plt.ylabel("finite sample energy")
 plt.savefig("av_and_range_n.png")
