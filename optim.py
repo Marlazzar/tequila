@@ -1,11 +1,13 @@
 import sys
-
 sys.path.append("src")
 import src.tequila as tq
+import csv
 import numpy as np
 from src.tequila import QubitHamiltonian, QCircuit
 from typing import Any
 import pylab
+import subprocess
+import os
 import pickle
 import globals 
 
@@ -33,12 +35,13 @@ def linear_H(number_hs, dist_h=1.0, samples=200, iterations=1, static:bool = Fal
     result = tq.minimize(E, silent=True)
     exact_energy = result.energy
     v = result.variables
-   
+    
+    # TODO: iterations  , energy convergence
     results = []
     sample_calls = []
+    energies = None
     print(optimizer)
     for i in range(iterations):
-        #try:
             globals.calls = 0
             print(globals.calls)
             result_sampl = tq.minimize(E, **optimizer, backend="aqt", samples=samples, hcb=True)
@@ -48,17 +51,21 @@ def linear_H(number_hs, dist_h=1.0, samples=200, iterations=1, static:bool = Fal
         #with open("data/optim_tmp_data_{}_{}.txt".format(number_hs, samples), "a") as file:
         #    file.write(f"{number_hs}, {result_sampl}\n")
             best_energy = result_sampl.energy
-            calls = globals.calls
-            print(calls)
-            #best_angles = result_sampl.angles
-            results.append(best_energy)
-            sample_calls.append(calls)
-        
+            if i == 0:
+                print(maxiter)
+                method = optimizer["method"]
+                gradient=""
+                if "gradient" in optimizer.keys():
+                    gradient = optimizer["gradient"]
+                result_sampl.history.plot("energies", filename=f"figures/{method}{gradient}_{samples}")
+                #result_sampl.history.plot("energies", labels=optimizer["method"])
+            energies = result_sampl.history.energies
+     
     print("exact energy", exact_energy)
     print("200 shots sampling energy", results)
     print("sampling calls", sample_calls)
 
-    return exact_energy, results, sample_calls
+    return exact_energy, results, globals.calls, energies
 
 def get_optimizer(method, maxiter):
     # need gradients
@@ -69,6 +76,26 @@ def get_optimizer(method, maxiter):
             "gradient": "2-point",
             #"lr": 0.01
         }
+    elif method == "sgd_qng":
+        return {
+            "method": "sgd",
+            "maxiter": maxiter,
+            "gradient": "qng",
+            "lr": 0.01
+        }
+    elif method == "sgd":
+        return {
+            "method": "sgd",
+            "maxiter": maxiter,
+            "lr": 0.01
+        }
+    elif method == "adam_qng":
+        return {
+            "method": "adam",
+            "maxiter": maxiter,
+            "gradient": "qng",
+
+        }
     elif method == "adam":
         return {
             "method": "adam",
@@ -76,6 +103,7 @@ def get_optimizer(method, maxiter):
             "gradient": "2-point",
 
         }
+
     # needs hessian and gradient - doesn't work with numerical 2-point, needs jacobian
     elif method == "newton-cg":
         return {
@@ -108,14 +136,29 @@ if __name__ == "__main__":
     data = []
     maxiters = [10]
        #for s in samples:
-    optimizers = [ "newton-cg", "bfgs", "adam", "nelder-mead", "cobyla"]
+    #optimizers = [ "cobyla", "nelder-mead", "adam", "sgd", "sgd_qng", "newton-cg"]
+    optimizers =["cobyla" ]
     for samples in samples_list:
         for maxiter in maxiters:
+            filename = "data/optim_data_{}_{}.csv".format(samples, maxiter)
+            if os.path.exists(filename):
+               subprocess.run(["mv", filename, "data_backup/"]) 
             for o in optimizers:
                 optimizer = get_optimizer(o, maxiter=maxiter)
-                exact_energy, results, sample_calls = linear_H(number_hs=2, dist_h=1.0, samples=samples, iterations=3, static=True, optimizer=optimizer)
-                data.append((o, maxiter, sample_calls, exact_energy, results))
+                try: 
+                    exact_energy, results, sample_calls, energies = linear_H(number_hs=2, dist_h=1.0, samples=samples, iterations=1, static=True, optimizer=optimizer)
+                    data.append((o, maxiter, sample_calls, exact_energy, energies))
+                    print("error in optimizer", o, "with maxiter", maxiter)
+                    with open(filename, "a") as file:
+                        writer = csv.writer(file)
+                        writer.writerow([o, maxiter, sample_calls, exact_energy, *energies])
+                except Exception as e:
+                    print(e)
+                    continue
+            filename = "data/optim_data_{}_{}.dat".format(samples, maxiter)
+            if os.path.exists(filename):
+                subprocess.run(["mv", filename, "data_backup/"])
             with open("data/optim_data_{}.dat".format(samples), "wb") as file:
                 pickle.dump(data,file) 
-            print("optimizer, maxiter, sample_calls, exact_energy, results")
+            print("optimizer, maxiter, sample_calls, exact_energy, energies")
             print("data", data)
