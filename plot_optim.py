@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import pickle
 import numpy as np
+import csv_to_data as csv2data
 
 # TODO: make 2 subfigures for all sample sizes
 # one in which all the optimizer energies are shown and one which shows for every optimizer
@@ -30,8 +31,9 @@ sample_list = [200]
 maxiters = [10]
 #fig, ax = plt.subplots(2*len(sample_list), sharex=True)
 for s, samples in enumerate(sample_list):
-        with open("data/optim_data_{}.dat".format(samples), "rb") as file:
-            data = pickle.load(file)
+        #with open("data/optim_data_{}.dat".format(samples), "rb") as file:
+        #    data = pickle.load(file)
+        data = csv2data.csv_to_optim_data("data/optim_data_{}_{}.csv".format(samples, maxiters[0]))
 
         data = [a for a in data]
         # optimizer method 
