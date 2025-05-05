@@ -1,6 +1,7 @@
 from tequila.grouping.binary_rep import BinaryHamiltonian
 from tequila.grouping.fermionic_methods import get_fermion_wise, do_fff, do_svd
 from tequila.grouping.fermionic_functions import n_elec
+from tequila.grouping.hcb_grouping import make_hcb_grouping
 from tequila.utils import TequilaException
 from openfermion import reverse_jordan_wigner
 import tequila as tq
@@ -30,6 +31,10 @@ def compile_commuting_parts(H, unitary_circuit="improved", *args, **kwargs):
             return "qubit"
         elif method == "lr" or method == "fff-lr":
             return "fermionic"
+    
+    if method == "hcb":
+        result, suggested_samples = make_hcb_grouping(H)
+        return result, suggested_samples
     
     if method_class(method) == 'qubit':
         if unitary_circuit is None or unitary_circuit.lower() == "improved":
