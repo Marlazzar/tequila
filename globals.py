@@ -1,7 +1,3 @@
-from sympy import jacobi_normalized
-
-from tequila import grouping
-
 
 def init():
     global calls
