@@ -131,6 +131,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             # batch jobs
             job = qiskit_backend.run(sampling_circuits, shots=shots)
             counts = job.result().get_counts()
+            # TODO: change this back
             wfns = []
             for i, count in enumerate(counts):
                 wfn = self.convert_measurements(count, target_qubits=read_out_qubits[i // k])
@@ -142,7 +143,10 @@ class BackendCircuitAQT(BackendCircuitQiskit):
         circuit = self.get_circuit(circuit=circuit, qiskit_backend=qiskit_backend, initial_state=initial_state, optimization_level=optimization_level, *args, **kwargs)
         sampling_circuits = [circuit] * k
         job = qiskit_backend.run(sampling_circuits, shots=shots)
+        globals.jobid = job.job_id()
+        print("job id", globals.jobid)
         counts = job.result().get_counts()
+        globals.counts = counts
         if isinstance(counts, list):
             wfns = []
             for i, count in enumerate(counts):
@@ -151,10 +155,11 @@ class BackendCircuitAQT(BackendCircuitQiskit):
             wfn = sum(wfns, w)
         else:
             wfn = self.convert_measurements(counts, target_qubits=read_out_qubits)
+
         return wfn
     
 
-    def convert_measurements(self, qiskit_counts, target_qubits=None) -> list[QubitWaveFunction]:
+    def convert_measurements(self, qiskit_counts, target_qubits=None) -> QubitWaveFunction:
         result = QubitWaveFunction(self.n_qubits, self.numbering)
         # todo there are faster ways
         for k, v in qiskit_counts.items():
@@ -227,6 +232,7 @@ class BackendCircuitAQT(BackendCircuitQiskit):
                 n_samples += count
             E_tmp = E_tmp / samples * sampling_groups[i].coeff
             E += E_tmp
+        
         assert n_samples == samples * len(wfns)
         return E
     
@@ -286,7 +292,7 @@ class BackendExpectationValueAQT(BackendExpectationValueQiskit):
 
 
 
-    def sample(self, variables, samples, initial_state: Union[int, QubitWaveFunction] = 0, hcb: bool = False, batching: bool = False, *args, **kwargs) -> numpy.array:
+    def sample(self, variables, samples, initial_state: Union[int, QubitWaveFunction] = 0, hcb: bool = True, batching: bool = False, *args, **kwargs) -> numpy.array:
         """
         sample the expectationvalue.
 
